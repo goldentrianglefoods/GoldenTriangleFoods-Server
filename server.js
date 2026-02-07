@@ -187,21 +187,29 @@ app.use("/api/v1/subscription-items", subscriptionItemRoutes);
 
 // Subscription Items Routes - Admin
 app.use("/api/v1/admin/subscription-items", adminSubscriptionItemRoutes);
-// Start server first to avoid platform startup timeouts
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port: ${PORT}`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔗 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
-});
 
-// MongoDB Connection (async)
+// MongoDB Connection (required for Vercel)
 mongoose.connect(process.env.MONGODB_URL, {
   serverSelectionTimeoutMS: 10000
 }).then(() => {
   console.log("✅ Database connected successfully");
 }).catch((err) => {
   console.error("❌ Database connection error:", err.message);
-  process.exit(1);
+  // Don't exit in serverless environment
+  if (process.env.NODE_ENV !== 'production') {
+    process.exit(1);
+  }
 });
 
+// Start server (only for local development, not needed in Vercel)
+if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 4000;
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on port: ${PORT}`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🔗 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
+  });
+}
+
+// Export for Vercel serverless
+module.exports = app;

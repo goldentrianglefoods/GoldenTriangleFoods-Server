@@ -1,0 +1,97 @@
+⚠️ IMPORTANT: ADD YOUR TWILIO CREDENTIALS ⚠️
+================================================
+
+To enable SMS functionality, you MUST add your Twilio credentials to the Server/.env file.
+
+REQUIRED CONFIGURATION:
+-----------------------
+
+Open: Server/.env
+
+Add these 3 lines:
+```
+TWILIO_ACCOUNT_SID=your_account_sid_here
+TWILIO_AUTH_TOKEN=your_auth_token_here  
+TWILIO_PHONE_NUMBER=your_twilio_phone_number_here
+```
+
+HOW TO GET TWILIO CREDENTIALS:
+-------------------------------
+
+1. Go to: https://www.twilio.com/try-twilio
+2. Sign up for a free account ($15 credit)
+3. Verify your email and phone number
+4. Go to Console Dashboard: https://console.twilio.com/
+5. Copy your Account SID and Auth Token
+6. Buy a phone number that supports SMS to India
+7. Paste all 3 values into Server/.env
+
+EXAMPLE .env CONFIGURATION:
+---------------------------
+```env
+# ... other config ...
+
+# Twilio SMS Configuration
+TWILIO_ACCOUNT_SID=AC1234567890abcdef1234567890abcdef
+TWILIO_AUTH_TOKEN=1234567890abcdef1234567890abcdef
+TWILIO_PHONE_NUMBER=+15551234567
+
+# ... other config ...
+```
+
+TESTING:
+--------
+
+After adding credentials:
+
+1. Restart your server:
+   ```bash
+   cd Server
+   npm run dev
+   ```
+
+2. Test phone registration:
+   - Go to http://localhost:3000/auth/login
+   - Click "Sign up"
+   - Select "Phone" tab
+   - Enter phone number (10 digits)
+   - You should receive SMS OTP
+
+PRODUCTION NOTES:
+-----------------
+
+⚠️ Twilio trial accounts can ONLY send SMS to verified phone numbers.
+
+For production:
+- Upgrade your Twilio account to paid
+- Add payment method
+- Enable auto-recharge to prevent service interruption
+- Set up billing alerts
+
+COST:
+-----
+- SMS to India: ~₹0.60 per message
+- Typical usage: 2-3 SMS per registration (OTP + forgot password)
+- Budget: ₹600 for ~1000 registrations
+
+WITHOUT TWILIO:
+---------------
+
+If you don't add Twilio credentials:
+- Email registration/login: ✅ Works
+- Phone registration/login: ❌ Won't work
+- Email forgot password: ✅ Works  
+- Phone forgot password: ❌ Won't work
+
+The system will log errors but won't crash.
+
+NEED HELP?
+----------
+
+Read the detailed guides:
+- QUICK_SETUP_GUIDE.md
+- IMPLEMENTATION_DOCS.md
+
+Or check Twilio docs: https://www.twilio.com/docs/sms
+
+================================================

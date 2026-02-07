@@ -1,0 +1,2 @@
+# This file ensures the temp directory is kept in version control
+# Temporary uploaded files will be stored here before uploading to Cloudinary

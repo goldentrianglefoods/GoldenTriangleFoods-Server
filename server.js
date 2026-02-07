@@ -188,18 +188,24 @@ app.use("/api/v1/subscription-items", subscriptionItemRoutes);
 // Subscription Items Routes - Admin
 app.use("/api/v1/admin/subscription-items", adminSubscriptionItemRoutes);
 
-// MongoDB Connection (required for Vercel)
-mongoose.connect(process.env.MONGODB_URL, {
-  serverSelectionTimeoutMS: 10000
-}).then(() => {
-  console.log("✅ Database connected successfully");
-}).catch((err) => {
-  console.error("❌ Database connection error:", err.message);
-  // Don't exit in serverless environment
-  if (process.env.NODE_ENV !== 'production') {
-    process.exit(1);
+// Serverless-friendly MongoDB connection (cache to avoid reconnect on each invocation)
+let isConnected = false;
+const connectDB = async () => {
+  if (isConnected) return;
+  try {
+    await mongoose.connect(process.env.MONGODB_URL, {
+      serverSelectionTimeoutMS: 10000,
+    });
+    isConnected = true;
+    console.log("✅ Database connected successfully");
+  } catch (err) {
+    console.error("❌ Database connection error:", err.message);
+    isConnected = false;
   }
-});
+};
+
+// Connect to DB immediately
+connectDB();
 
 // Start server (only for local development, not needed in Vercel)
 if (process.env.NODE_ENV !== 'production') {

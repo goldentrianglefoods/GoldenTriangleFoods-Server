@@ -28,6 +28,17 @@ const deliveryScheduleSchema = new mongoose.Schema({
     addressId: { type: mongoose.Schema.Types.ObjectId, ref: 'Address', default: null },
     addressLat: { type: Number, default: null },
     addressLng: { type: Number, default: null },
+    // Per-delivery salad override (null means use subscription default)
+    saladId: { type: mongoose.Schema.Types.ObjectId, ref: 'FoodItem', default: null },
+    saladSnapshot: {
+        name: { type: String, default: null },
+        image: { type: String, default: null },
+        price: { type: Number, default: null }
+    },
+    customization: {
+        type: saladCustomizationSchema,
+        default: null
+    },
     status: {
         type: String,
         enum: ['scheduled', 'delivered', 'skipped', 'rescheduled'],
@@ -96,6 +107,8 @@ const SubscriptionSchema = new mongoose.Schema({
     // Pricing
     basePrice: { type: Number, required: true },
     proteinAddOnsCost: { type: Number, default: 0 },
+    deliveryFeePerDay: { type: Number, default: 0 },
+    totalDeliveryFee: { type: Number, default: 0 },
     totalAmount: { type: Number, required: true },
 
     // Payment fields

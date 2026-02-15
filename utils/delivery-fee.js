@@ -81,9 +81,41 @@ const calculateDeliveryFee = async (lat, lng, orderAmount = 0) => {
   return fee;
 };
 
+/**
+ * Calculate delivery fee specifically for subscription (per-day charge).
+ * No free delivery thresholds — always charges based on distance.
+ * Min ₹0 if within 1.5km, else ₹10/km for extra distance.
+ */
+const calculateSubscriptionDeliveryFeePerDay = async (lat, lng) => {
+  console.log('calculateSubscriptionDeliveryFeePerDay called with lat:', lat, 'lng:', lng);
+  if (lat == null || lng == null) {
+    console.log('Lat/lng is null, returning default subscription delivery fee 30');
+    return 30;
+  }
+  let distanceKm = 0;
+  try {
+    distanceKm = await getDistanceKmFromApi(lat, lng);
+    console.log('Subscription OSRM distance:', distanceKm, 'km');
+  } catch (error) {
+    console.log('OSRM failed for subscription, using Haversine:', error.message);
+    distanceKm = calculateDistanceKm(lat, lng, RESTAURANT_COORDS.lat, RESTAURANT_COORDS.lng);
+    console.log('Subscription Haversine distance:', distanceKm, 'km');
+  }
+
+  // Subscription: ₹10/km (minimum ₹10, no free zone)
+  if (distanceKm <= 0.5) {
+    console.log('Subscription distance <= 0.5km, fee: ₹10');
+    return 10;
+  }
+  const fee = Math.ceil(distanceKm) * 10;
+  console.log(`Subscription distance ${distanceKm.toFixed(2)} km, fee: ₹${fee}`);
+  return fee;
+};
+
 module.exports = {
   RESTAURANT_COORDS,
   calculateDistanceKm,
   calculateDeliveryFee,
+  calculateSubscriptionDeliveryFeePerDay,
   getDistanceKmFromApi,
 };

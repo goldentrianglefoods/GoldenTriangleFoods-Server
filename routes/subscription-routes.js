@@ -8,7 +8,9 @@ const {
     getMySubscriptions,
     getSubscriptionById,
     getActiveSubscription,
-    updateSubscriptionSchedule
+    updateSubscriptionSchedule,
+    calculateSubscriptionDeliveryFee,
+    updateScheduleSalad
 } = require('../controllers/web/v1/subscription-controller');
 
 // Public route - get available plans
@@ -16,6 +18,9 @@ router.get('/plans', getSubscriptionPlans);
 
 // Protected routes - require authentication
 router.use(authMiddleware);
+
+// Calculate delivery fee for subscription (preview before payment)
+router.post('/calculate-delivery-fee', calculateSubscriptionDeliveryFee);
 
 // Create subscription with payment
 router.post('/create', createSubscription);
@@ -34,5 +39,8 @@ router.get('/:id', getSubscriptionById);
 
 // Update schedule (date/time) for a subscription
 router.patch('/:id/schedule/:scheduleId', updateSubscriptionSchedule);
+
+// Update salad choice for a specific delivery
+router.patch('/:id/schedule/:scheduleId/salad', updateScheduleSalad);
 
 module.exports = router;

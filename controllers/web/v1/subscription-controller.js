@@ -4,6 +4,8 @@ const { FoodItem } = require('../../../models/foodItem-model');
 const Payment = require('../../../models/payment-model');
 const Address = require('../../../models/address-model');
 const { razorpayInstance, verifyPaymentSignature } = require('../../../utils/razorpay');
+const { calculateDeliveryFee, calculateSubscriptionDeliveryFeePerDay } = require('../../../utils/delivery-fee');
+const { forwardGeocodeAddress } = require('../../../utils/geocode');
 
 const normalizeDate = (date) => {
     const d = new Date(date);
@@ -134,7 +136,34 @@ const createSubscription = async (req, res) => {
             resolvedAddress = `${address.houseNumber}, ${building}${address.street}, ${address.city}, ${address.state} - ${address.pincode}${landmark}`;
             addressLat = address.latitude ?? null;
             addressLng = address.longitude ?? null;
+
+            // Forward geocode if no coordinates
+            if (addressLat == null || addressLng == null) {
+                try {
+                    const coords = await forwardGeocodeAddress(address);
+                    if (coords && coords.lat && coords.lng) {
+                        addressLat = coords.lat;
+                        addressLng = coords.lng;
+                        address.latitude = coords.lat;
+                        address.longitude = coords.lng;
+                        await address.save();
+                    }
+                } catch (geoErr) {
+                    console.error("Geocoding failed for subscription address:", geoErr.message);
+                }
+            }
         }
+
+        // Calculate delivery fee per day based on address distance
+        let deliveryFeePerDay = 0;
+        try {
+            deliveryFeePerDay = await calculateSubscriptionDeliveryFeePerDay(addressLat, addressLng);
+            console.log('Subscription delivery fee per day:', deliveryFeePerDay);
+        } catch (feeErr) {
+            console.error("Delivery fee calculation failed:", feeErr.message);
+            deliveryFeePerDay = 30; // default fallback
+        }
+        const totalDeliveryFee = deliveryFeePerDay * plan.days;
 
         // Calculate protein add-ons cost
         let proteinAddOnsCost = 0;
@@ -144,8 +173,8 @@ const createSubscription = async (req, res) => {
             );
         }
 
-        // Total = Plan price + (protein add-ons * number of days)
-        const totalAmount = plan.price + (proteinAddOnsCost * plan.days);
+        // Total = Plan price + (protein add-ons * number of days) + (delivery fee * number of days)
+        const totalAmount = plan.price + (proteinAddOnsCost * plan.days) + totalDeliveryFee;
 
         // Create delivery schedule
         const schedule = normalizedDates
@@ -189,6 +218,8 @@ const createSubscription = async (req, res) => {
             deliverySchedule: schedule,
             basePrice: plan.price,
             proteinAddOnsCost,
+            deliveryFeePerDay,
+            totalDeliveryFee,
             totalAmount,
             status: 'pending',
             paymentStatus: 'pending'
@@ -219,7 +250,9 @@ const createSubscription = async (req, res) => {
                 id: subscription._id,
                 planName: plan.name,
                 totalAmount,
-                proteinAddOnsCost
+                proteinAddOnsCost,
+                deliveryFeePerDay,
+                totalDeliveryFee
             },
             razorpayOrder: {
                 id: razorpayOrder.id,
@@ -603,6 +636,178 @@ const getActiveSubscription = async (req, res) => {
     }
 };
 
+/**
+ * Calculate Delivery Fee for Subscription (Preview)
+ * POST /subscription/calculate-delivery-fee
+ * Body: { addressId }
+ */
+const calculateSubscriptionDeliveryFee = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const { addressId } = req.body;
+
+        if (!addressId) {
+            return res.status(400).json({
+                status: false,
+                message: "Address ID is required"
+            });
+        }
+
+        const address = await Address.findOne({ _id: addressId, userId: userId });
+        if (!address) {
+            return res.status(400).json({
+                status: false,
+                message: "Invalid address selected"
+            });
+        }
+
+        let lat = address.latitude ?? null;
+        let lng = address.longitude ?? null;
+
+        // Forward geocode if no coordinates
+        if (lat == null || lng == null) {
+            try {
+                const coords = await forwardGeocodeAddress(address);
+                if (coords && coords.lat && coords.lng) {
+                    lat = coords.lat;
+                    lng = coords.lng;
+                    address.latitude = coords.lat;
+                    address.longitude = coords.lng;
+                    await address.save();
+                }
+            } catch (geoErr) {
+                console.error("Geocoding failed:", geoErr.message);
+            }
+        }
+
+        let deliveryFeePerDay = 0;
+        try {
+            deliveryFeePerDay = await calculateSubscriptionDeliveryFeePerDay(lat, lng);
+            console.log('Preview subscription delivery fee per day:', deliveryFeePerDay, 'for lat:', lat, 'lng:', lng);
+        } catch (feeErr) {
+            console.error("Delivery fee calculation failed:", feeErr.message);
+            deliveryFeePerDay = 30;
+        }
+
+        res.status(200).json({
+            status: true,
+            deliveryFeePerDay
+        });
+
+    } catch (error) {
+        console.error("Error calculating delivery fee:", error);
+        res.status(500).json({
+            status: false,
+            message: "Failed to calculate delivery fee",
+            error: error.message
+        });
+    }
+};
+
+/**
+ * Update Salad Choice for a Scheduled Delivery
+ * PATCH /subscription/:id/schedule/:scheduleId/salad
+ * Body: { saladId, customization? }
+ * Must be at least 24 hours before delivery
+ */
+const updateScheduleSalad = async (req, res) => {
+    try {
+        const { id, scheduleId } = req.params;
+        const { saladId, customization } = req.body;
+        const userId = req.user._id;
+
+        if (!saladId) {
+            return res.status(400).json({
+                status: false,
+                message: "Salad ID is required"
+            });
+        }
+
+        const subscription = await Subscription.findOne({ _id: id, user: userId });
+        if (!subscription) {
+            return res.status(404).json({
+                status: false,
+                message: "Subscription not found"
+            });
+        }
+
+        if (subscription.status !== 'active') {
+            return res.status(400).json({
+                status: false,
+                message: "Only active subscriptions can be modified"
+            });
+        }
+
+        const scheduleItem = subscription.deliverySchedule.id(scheduleId);
+        if (!scheduleItem) {
+            return res.status(404).json({
+                status: false,
+                message: "Schedule item not found"
+            });
+        }
+
+        // Check 24-hour cutoff
+        const now = new Date();
+        const cutoff = new Date(scheduleItem.date);
+        cutoff.setHours(cutoff.getHours() - 24);
+        if (now >= cutoff) {
+            return res.status(400).json({
+                status: false,
+                message: "Salad choice can only be changed at least 24 hours before the scheduled delivery"
+            });
+        }
+
+        if (scheduleItem.status !== 'scheduled' && scheduleItem.status !== 'rescheduled') {
+            return res.status(400).json({
+                status: false,
+                message: "Cannot change salad for a delivery that is already delivered or skipped"
+            });
+        }
+
+        // Validate salad exists
+        const salad = await FoodItem.findById(saladId);
+        if (!salad) {
+            return res.status(404).json({
+                status: false,
+                message: "Selected salad not found"
+            });
+        }
+
+        // Update schedule item with new salad
+        scheduleItem.saladId = salad._id;
+        scheduleItem.saladSnapshot = {
+            name: salad.name,
+            image: salad.image,
+            price: salad.price
+        };
+        if (customization) {
+            scheduleItem.customization = customization;
+        }
+        scheduleItem.updatedAt = new Date();
+
+        await subscription.save();
+
+        res.status(200).json({
+            status: true,
+            message: "Salad choice updated successfully for the selected delivery",
+            scheduleItem: {
+                id: scheduleItem._id,
+                date: scheduleItem.date,
+                saladSnapshot: scheduleItem.saladSnapshot,
+                customization: scheduleItem.customization
+            }
+        });
+
+    } catch (error) {
+        console.error("Error updating schedule salad:", error);
+        res.status(500).json({
+            status: false,
+            message: "Failed to update salad choice",
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
     getSubscriptionPlans,
     createSubscription,
@@ -610,5 +815,7 @@ module.exports = {
     getMySubscriptions,
     getSubscriptionById,
     getActiveSubscription,
-    updateSubscriptionSchedule
+    updateSubscriptionSchedule,
+    calculateSubscriptionDeliveryFee,
+    updateScheduleSalad
 };
